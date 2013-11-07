@@ -38,10 +38,13 @@ class Emacs < Formula
     {
       # Fix default-directory on Cocoa and Mavericks.
       # Fixed upstream in r114730 and r114882.
-      :p0 => DATA,
+      :p0 => fix_default_directory,
       # Make native fullscreen mode optional, mostly from
       # upstream r111679
-      :p1 => 'https://gist.github.com/scotchi/7209145/raw/a571acda1c85e13ed8fe8ab7429dcb6cab52344f/ns-use-native-fullscreen-and-toggle-frame-fullscreen.patch'
+      :p1 => [
+        'https://gist.github.com/scotchi/7209145/raw/a571acda1c85e13ed8fe8ab7429dcb6cab52344f/ns-use-native-fullscreen-and-toggle-frame-fullscreen.patch',
+        add_activity_hooks
+      ]
     }
   end unless build.head?
 
@@ -133,9 +136,11 @@ class Emacs < Formula
     end
     return s
   end
-end
 
-__END__
+  # Fix default-directory on Cocoa and Mavericks.
+  # Fixed upstream in r114730 and r114882.
+  def fix_default_directory
+    StringIO.new <<-PATCH
 --- src/emacs.c.orig	2013-02-06 13:33:36.000000000 +0900
 +++ src/emacs.c	2013-11-02 22:38:45.000000000 +0900
 @@ -1158,10 +1158,13 @@
@@ -154,3 +159,111 @@ __END__
            if (!strncmp (argv[skip_args], "-psn", 4))
              {
                skip_args += 1;
+
+    PATCH
+  end
+
+  def add_activity_hooks
+    StringIO.new <<-PATCH
+diff --git a/src/keyboard.c b/src/keyboard.c
+index 47d8780..ef93dee 100644
+--- a/src/keyboard.c
++++ b/src/keyboard.c
+@@ -262,6 +262,9 @@ static Lisp_Object Qdeferred_action_function;
+
+ static Lisp_Object Qdelayed_warnings_hook;
+
++static Lisp_Object Qactivate_emacs_hook;
++static Lisp_Object Qdeactivate_emacs_hook;
++
+ static Lisp_Object Qinput_method_exit_on_first_char;
+ static Lisp_Object Qinput_method_use_echo_area;
+
+@@ -3986,6 +3989,16 @@ kbd_buffer_get_event (KBOARD **kbp,
+ 	  obj = make_lispy_event (event);
+ 	  kbd_fetch_ptr = event + 1;
+ 	}
++      else if (event->kind == ACTIVATE_EMACS_EVENT)
++      	{
++	  safe_run_hooks(Qactivate_emacs_hook);
++	  kbd_fetch_ptr = event + 1;
++	}
++      else if (event->kind == DEACTIVATE_EMACS_EVENT)
++      	{
++	  safe_run_hooks(Qdeactivate_emacs_hook);
++	  kbd_fetch_ptr = event + 1;
++	}
+       else
+ 	{
+ 	  /* If this event is on a different frame, return a switch-frame this
+@@ -11354,6 +11367,8 @@ syms_of_keyboard (void)
+   DEFSYM (Qpre_command_hook, "pre-command-hook");
+   DEFSYM (Qpost_command_hook, "post-command-hook");
+   DEFSYM (Qdeferred_action_function, "deferred-action-function");
++  DEFSYM (Qactivate_emacs_hook, "activate-emacs-hook");
++  DEFSYM (Qdeactivate_emacs_hook, "deactivate-emacs-hook");
+   DEFSYM (Qdelayed_warnings_hook, "delayed-warnings-hook");
+   DEFSYM (Qfunction_key, "function-key");
+   DEFSYM (Qmouse_click, "mouse-click");
+@@ -11794,6 +11809,14 @@ the function in which the error occurred is unconditionally removed, since
+ otherwise the error might happen repeatedly and make Emacs nonfunctional.  */);
+   Vpost_command_hook = Qnil;
+
++  DEFVAR_LISP ("activate-emacs-hook",  Vactivate_emacs_hook,
++             doc: /* Normal hook run when emacs becomes active.*/);
++  Vactivate_emacs_hook = Qnil;
++
++  DEFVAR_LISP ("deactivate-emacs-hook",  Vdeactivate_emacs_hook,
++             doc: /* Normal hook run when emacs becomes inactive.*/);
++  Vdeactivate_emacs_hook = Qnil;
++
+ #if 0
+   DEFVAR_LISP ("echo-area-clear-hook", ...,
+ 	       doc: /* Normal hook run when clearing the echo area.  */);
+diff --git a/src/nsterm.m b/src/nsterm.m
+index a57e744..bb543f8 100644
+--- a/src/nsterm.m
++++ b/src/nsterm.m
+@@ -4519,7 +4519,24 @@ not_in_argv (NSString *arg)
+   ns_update_auto_hide_menu_bar ();
+   // No constraining takes place when the application is not active.
+   ns_constrain_all_frames ();
++  if (!emacs_event)
++    return;
++
++  emacs_event->kind = ACTIVATE_EMACS_EVENT;
++  kbd_buffer_store_event (emacs_event);
++  ns_send_appdefined (-1);
+ }
++
++- (void)applicationWillResignActive: (NSNotification *)notification
++{
++  if (!emacs_event)
++    return;
++
++  emacs_event->kind = DEACTIVATE_EMACS_EVENT;
++  kbd_buffer_store_event (emacs_event);
++  ns_send_appdefined (-1);
++}
++
+ - (void)applicationDidResignActive: (NSNotification *)notification
+ {
+   //ns_app_active=NO;
+diff --git a/src/termhooks.h b/src/termhooks.h
+index a24b305..a95a7b6 100644
+--- a/src/termhooks.h
++++ b/src/termhooks.h
+@@ -210,6 +210,8 @@ enum event_kind
+   , NS_TEXT_EVENT
+   /* Non-key system events (e.g. application menu events) */
+   , NS_NONKEY_EVENT
++  , ACTIVATE_EMACS_EVENT
++  , DEACTIVATE_EMACS_EVENT
+ #endif
+
+ };
+
+    PATCH
+  end
+
+end
