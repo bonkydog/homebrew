@@ -43,7 +43,8 @@ class Emacs < Formula
       # upstream r111679
       :p1 => [
         'https://gist.github.com/scotchi/7209145/raw/a571acda1c85e13ed8fe8ab7429dcb6cab52344f/ns-use-native-fullscreen-and-toggle-frame-fullscreen.patch',
-        add_activity_hooks
+        add_activity_hooks,
+        default_toolbar_off,
       ]
     }
   end unless build.head?
@@ -263,6 +264,24 @@ index a24b305..a95a7b6 100644
 
  };
 
+    PATCH
+  end
+
+  def default_toolbar_off
+    StringIO.new <<-PATCH
+diff --git a/src/frame.c b/src/frame.c
+index 14e8fab..52a4304 100644
+--- a/src/frame.c
++++ b/src/frame.c
+@@ -4491,7 +4491,7 @@ See the command `tool-bar-mode' for a description of this minor mode.
+ Setting this variable directly does not take effect;
+ either customize it (see the info node `Easy Customization')
+ or call the function `tool-bar-mode'.  */);
+-#ifdef HAVE_WINDOW_SYSTEM
++#ifdef I_WANT_THE_TOOLBAR_ON_BY_DEFAULT
+   Vtool_bar_mode = Qt;
+ #else
+   Vtool_bar_mode = Qnil;
     PATCH
   end
 
